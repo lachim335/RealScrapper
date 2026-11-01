@@ -24,26 +24,34 @@ PAGE = """<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Byty — Frýdek-Místek a okolí</title>
   <style>
-    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #17212b; background: #f3f5f7; }
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; color: #e6edf3; background: #10161d; }
     body { margin: 0; }
-    header { background: #173c5a; color: white; padding: 1.2rem max(1rem, calc((100% - 1200px) / 2)); }
+    header { background: #172b3b; color: #f4f8fb; padding: 1.2rem max(1rem, calc((100% - 1200px) / 2)); border-bottom: 1px solid #2a3c4b; }
     header h1 { margin: 0 0 .25rem; font-size: 1.5rem; }
     main { max-width: 1200px; margin: 1.5rem auto; padding: 0 1rem; }
-    .filters, .table-panel { background: white; border-radius: .65rem; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 1px 5px #132a3b14; }
+    .filters, .table-panel { background: #19232d; border: 1px solid #2b3946; border-radius: .65rem; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 10px #0003; }
     .filters { display: flex; flex-wrap: wrap; align-items: end; gap: .8rem 1rem; }
     label { display: grid; gap: .25rem; font-size: .9rem; }
-    input, select { font: inherit; padding: .4rem; border: 1px solid #bac5ce; border-radius: .35rem; }
-    #status { margin-left: auto; color: #526574; font-size: .9rem; }
+    input, select { color: #e6edf3; background: #111a23; font: inherit; padding: .4rem; border: 1px solid #435260; border-radius: .35rem; }
+    input::placeholder { color: #82909c; }
+    input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px solid #79c0ff; outline-offset: 2px; }
+    .favorite-filter { display: flex; align-items: center; gap: .45rem; min-height: 2rem; }
+    .favorite-filter input { width: 1rem; height: 1rem; accent-color: #f2cc60; }
+    #status { margin-left: auto; color: #a6b3bf; font-size: .9rem; }
     .history-row[hidden] { display: none; }
     .history-chart { padding: .5rem 1rem 1rem; }
     .history-chart canvas { width: 100%; height: 220px; display: block; }
-    .listing-links { display: flex; flex-wrap: wrap; gap: .25rem .75rem; }
+    .listing-links { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .75rem; }
     .table-wrap { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: .92rem; }
-    th, td { padding: .65rem .5rem; text-align: left; vertical-align: top; border-bottom: 1px solid #e6eaed; }
-    th { white-space: nowrap; color: #526574; }
-    tr.inactive { color: #818b92; }
-    a { color: #17649a; }
+    th, td { padding: .65rem .5rem; text-align: left; vertical-align: top; border-bottom: 1px solid #2b3946; }
+    th { white-space: nowrap; color: #a6b3bf; }
+    tr.inactive { color: #8996a3; }
+    a { color: #79c0ff; }
+    a:hover { color: #b6e3ff; }
+    .favorite-toggle { display: inline-grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 1px solid #435260; border-radius: .4rem; color: #9aa8b5; background: #111a23; cursor: pointer; font-size: 1.25rem; line-height: 1; }
+    .favorite-toggle[aria-pressed="true"] { color: #f2cc60; border-color: #806b2f; }
+    .favorite-toggle:hover { background: #263441; }
     .photos { display: flex; gap: .25rem; }
     .photos img { width: 62px; height: 48px; object-fit: cover; border-radius: .25rem; }
     .desc { max-width: 25rem; white-space: pre-line; }
@@ -59,6 +67,7 @@ PAGE = """<!doctype html>
       <label>Max. cena (Kč)<input id="max-price" type="number" min="0" placeholder="bez limitu"></label>
       <label><span>Stav</span><select id="status-filter"><option value="">Aktivní i neaktivní</option><option value="active">Aktivní</option><option value="inactive">Neaktivní</option></select></label>
       <label>Řazení<select id="sort-order"><option value="default">Výchozí</option><option value="price-asc">Cena: od nejnižší</option><option value="price-desc">Cena: od nejvyšší</option></select></label>
+      <label class="favorite-filter"><input id="favorites-only" type="checkbox"> Pouze oblíbené</label>
       <span id="status">Načítám…</span>
     </section>
     <section class="table-panel"><div class="table-wrap">
@@ -67,9 +76,24 @@ PAGE = """<!doctype html>
   </main>
   <script>
     const money = n => n == null ? "Cena neuvedena" : new Intl.NumberFormat("cs-CZ").format(n) + " Kč";
+    const FAVORITES_KEY = "realscrapper-favorites-v1";
     let allListings = [];
     const openHistories = new Set();
+    let favoritesWarning = "";
+    let favorites = loadFavorites();
     const $ = id => document.getElementById(id);
+    function loadFavorites() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+        if (!Array.isArray(saved) || saved.some(id => typeof id !== "string")) {
+          throw new Error("uložený seznam oblíbených nemá očekávaný formát");
+        }
+        return new Set(saved);
+      } catch (error) {
+        favoritesWarning = " · Oblíbené nelze načíst: " + error.message;
+        return new Set();
+      }
+    }
     async function refresh() {
       const response = await fetch("/api/listings", {cache: "no-store"});
       if (!response.ok) throw new Error("Server vrátil HTTP " + response.status);
@@ -81,7 +105,7 @@ PAGE = """<!doctype html>
       layout.innerHTML = '<option value="">Všechny dispozice</option>' +
         dispositions.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join("");
       if (dispositions.includes(selectedLayout)) layout.value = selectedLayout;
-      $("status").textContent = "Aktualizováno " + new Date().toLocaleTimeString("cs-CZ") + " · " + allListings.length + " záznamů";
+      $("status").textContent = "Aktualizováno " + new Date().toLocaleTimeString("cs-CZ") + " · " + allListings.length + " záznamů" + favoritesWarning;
       render();
     }
     function filtered() {
@@ -90,6 +114,7 @@ PAGE = """<!doctype html>
       const rows = allListings.filter(x =>
         (!$("layout").value || x.disposition === $("layout").value) &&
         (!$("status-filter").value || x.status === $("status-filter").value) &&
+        (!$("favorites-only").checked || favorites.has(String(x.property_id))) &&
         ((!min && max === Infinity) || (x.price_czk != null && x.price_czk >= min && x.price_czk <= max))
       );
       const sortOrder = $("sort-order").value;
@@ -111,10 +136,11 @@ PAGE = """<!doctype html>
         const id = String(x.property_id);
         const historyId = "history-" + id;
         const expanded = openHistories.has(id);
+        const isFavorite = favorites.has(id);
         const images = x.display_image_urls || x.image_urls;
         return `<tr class="${x.status}">
           <td><div class="photos">${images.slice(0, 2).map(src => `<img loading="lazy" src="${esc(src)}" alt="">`).join("")}</div></td>
-          <td><div class="listing-links"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.disposition)}</a><a class="history-link" href="#${historyId}" data-id="${id}" aria-expanded="${expanded}">${expanded ? "Skrýt historii" : "Historie cen"}</a></div><div>${esc(x.disposition)} · ${x.area_m2 == null ? "plocha neuvedena" : x.area_m2 + " m²"}</div><div>${(x.attributes || []).slice(0, 5).map(a => `${esc(a.name)}: ${esc(a.value)}`).join(" · ")}</div><div class="desc">${esc((x.description || "").slice(0, 280))}</div></td>
+          <td><div class="listing-links"><button class="favorite-toggle" type="button" data-id="${id}" aria-label="${isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených"}">${isFavorite ? "★" : "☆"}</button><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.disposition)}</a><a class="history-link" href="#${historyId}" data-id="${id}" aria-expanded="${expanded}">${expanded ? "Skrýt historii" : "Historie cen"}</a></div><div>${esc(x.disposition)} · ${x.area_m2 == null ? "plocha neuvedena" : x.area_m2 + " m²"}</div><div>${(x.attributes || []).slice(0, 5).map(a => `${esc(a.name)}: ${esc(a.value)}`).join(" · ")}</div><div class="desc">${esc((x.description || "").slice(0, 280))}</div></td>
           <td>${esc(x.location)}</td><td>${money(x.price_czk)}</td>
           <td>${x.price_history.map((p, i) => `${i ? "<br>" : ""}${money(p.price_czk)}<br><small>${new Date(p.observed_at).toLocaleDateString("cs-CZ")}</small>`).join("")}</td>
           <td>${x.status === "active" ? "Aktivní" : "Neaktivní"}</td></tr>
@@ -167,8 +193,24 @@ PAGE = """<!doctype html>
       const last = new Date(points[points.length - 1].observed_at).toLocaleDateString("cs-CZ");
       ctx.fillText(last, width - pad.right - ctx.measureText(last).width, height - 8);
     }
-    ["layout", "min-price", "max-price", "status-filter", "sort-order"].forEach(id => $(id).addEventListener("input", render));
+    ["layout", "min-price", "max-price", "status-filter", "sort-order", "favorites-only"].forEach(id => $(id).addEventListener("input", render));
     $("listings").addEventListener("click", event => {
+      const favoriteButton = event.target.closest("button.favorite-toggle");
+      if (favoriteButton) {
+        const id = favoriteButton.dataset.id;
+        const wasFavorite = favorites.has(id);
+        if (wasFavorite) favorites.delete(id); else favorites.add(id);
+        try {
+          localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites]));
+          favoritesWarning = "";
+        } catch (error) {
+          if (wasFavorite) favorites.add(id); else favorites.delete(id);
+          favoritesWarning = " · Oblíbené se nepodařilo uložit: " + error.message;
+          $("status").textContent = favoritesWarning.trim();
+        }
+        render();
+        return;
+      }
       const link = event.target.closest("a.history-link");
       if (!link) return;
       event.preventDefault();

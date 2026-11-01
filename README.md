@@ -47,6 +47,9 @@ zobrazuje aktuální data. Stránka se také sama obnoví každých 30 sekund.
 U každého inzerátu odkaz „Historie cen“ rozbalí jeho graf. Scraper ukládá
 první dva náhledy fotografií lokálně do `data/images`; server je poskytuje z
 této složky.
+Web používá tmavé barevné schéma. Oblíbené inzeráty označíte hvězdičkou;
+seznam se ukládá v místním úložišti prohlížeče a lze jej omezit filtrem
+„Pouze oblíbené“.
 
 Pro Raspberry Pi 3 je vhodný Raspberry Pi OS s Pythonem 3.10 nebo novějším.
 Server je záměrně dostupný na všech síťových rozhraních; nevystavujte jej do

@@ -1,6 +1,7 @@
 # RealScrapper
 
-Jednoduchý osobní sběrač nabídek prodeje bytů 2+1 a 3+1 ze Sreality. Ukládá
+Jednoduchý osobní sběrač nabídek prodeje bytů 2+1, 3+1, 3+kk a atypických
+dispozic ze Sreality. Ukládá
 údaje do SQLite, zaznamenává změny nabídkové ceny a nabízí přehled na domácí
 síti. Nepotřebuje žádné externí Python balíčky; stačí Python 3.10+.
 
@@ -42,7 +43,8 @@ veřejného internetu.
 ## Cena a ukládané údaje
 
 V tabulce lze volit dispozici a volitelně filtrovat minimální a maximální cenu.
-Filtr je pouze zobrazovací: scraper ukládá nabídky v obou dispozicích bez
+Filtr dispozic se automaticky naplní podle hodnot dostupných v databázi.
+Scraper ukládá nabídky v podporovaných dispozicích bez
 cenového omezení, takže lze sledovat i změnu ceny přes nastavenou hranici.
 Historie a jednoduchý graf se aktualizují při každém sběru, pokud se cena změnila.
 
@@ -57,3 +59,17 @@ historie se nemažou.
 Sběr používá veřejně dostupné stránky, bez přihlašování; mezi načítáním detailů
 vkládá krátkou prodlevu. Respektujte podmínky Sreality a provozujte jej
 ohleduplně.
+
+## Pročištění databáze
+
+Náhled bezpečných úklidových operací zobrazíte příkazem:
+
+```sh
+python3 cleanup.py
+```
+
+Ve výchozím stavu se nic nemění. Pro odstranění přesně duplicitních záznamů
+ceny se stejným inzerátem, časem a částkou, osiřelých řádků a nepoužívaných
+lokálních náhledů spusťte `python3 cleanup.py --apply`. Před změnami vytvoří
+zálohu databáze vedle původního souboru. Inzeráty ani nejednoznačné cenové
+záznamy automaticky nemaže ani neslučuje.

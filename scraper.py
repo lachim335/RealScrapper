@@ -30,7 +30,7 @@ DEFAULT_SEARCH_URL = (
     "https://www.sreality.cz/hledani/prodej/byty"
     "?region=Fr%C3%BDdek-M%C3%ADstek"
 )
-WANTED_DISPOSITIONS = {"2+1", "3+1"}
+WANTED_DISPOSITIONS = {"2+1", "3+1", "3+kk", "Atypický"}
 USER_AGENT = "RealScrapper/1.0 (personal home-LAN listing tracker)"
 DETAIL_DELAY_SECONDS = 0.4
 IMAGE_LIMIT_PER_LISTING = 2

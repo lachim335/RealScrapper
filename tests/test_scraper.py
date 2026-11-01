@@ -1,6 +1,9 @@
 import hashlib
 import io
 import json
+import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from email.message import Message
@@ -9,6 +12,7 @@ from unittest.mock import patch
 
 from scraper import (
     ListingStore,
+    WANTED_DISPOSITIONS,
     _image_url,
     download_listing_images,
     estate_search_data,
@@ -20,6 +24,9 @@ from scraper import (
 
 
 class ScraperTests(unittest.TestCase):
+    def test_scraper_includes_requested_dispositions(self):
+        self.assertTrue({"2+1", "3+1", "3+kk", "Atypický"} <= WANTED_DISPOSITIONS)
+
     def test_extracts_server_rendered_results(self):
         payload = {
             "props": {
@@ -185,6 +192,48 @@ class ScraperTests(unittest.TestCase):
             ).fetchall()
             self.assertEqual([row[0] for row in history], [5_300_000])
             store.close()
+
+    def test_cleanup_defaults_to_dry_run_and_creates_backup_when_applied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db_path = Path(directory) / "reality.sqlite3"
+            store = ListingStore(db_path)
+            listing = {
+                "source_id": "listing-id",
+                "title": "Byt 3+kk",
+                "disposition": "3+kk",
+                "location": "Frýdek-Místek",
+                "area_m2": 70,
+                "price_czk": 4_000_000,
+                "description": "Popis",
+                "image_urls": [],
+                "url": "https://example.test/listing-id",
+            }
+            listing["signature"] = make_signature(listing)
+            property_id = store.save(listing, "2026-01-01T10:00:00+00:00")
+            store.db.execute(
+                """INSERT INTO price_history(property_id, observed_at, price_czk)
+                   VALUES (?, ?, ?)""",
+                (property_id, "2026-01-01T10:00:00+00:00", 4_000_000),
+            )
+            store.db.commit()
+            store.close()
+
+            command = [sys.executable, str(Path(__file__).parents[1] / "cleanup.py"), "--db", str(db_path)]
+            preview = subprocess.run(command, capture_output=True, text=True, check=True)
+            self.assertIn("Duplicitní záznamy stejné ceny a času: 1", preview.stdout)
+            self.assertFalse(list(Path(directory).glob("*.backup-*.sqlite3")))
+
+            applied = subprocess.run(
+                [*command, "--apply"], capture_output=True, text=True, check=True
+            )
+            self.assertIn("Úklid dokončen", applied.stdout)
+            self.assertEqual(
+                sqlite3.connect(db_path)
+                .execute("SELECT COUNT(*) FROM price_history")
+                .fetchone()[0],
+                1,
+            )
+            self.assertEqual(len(list(Path(directory).glob("*.backup-*.sqlite3"))), 1)
 
     def test_price_changes_are_recorded_and_reissued_id_is_linked(self):
         with tempfile.TemporaryDirectory() as directory:

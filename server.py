@@ -54,7 +54,7 @@ PAGE = """<!doctype html>
   <header><h1>Prodej bytů — Frýdek-Místek a okolí</h1><div>Lokální přehled inzerátů a vývoje nabídkových cen</div></header>
   <main>
     <section class="filters">
-      <label>Dispozice<select id="layout"><option value="">Vše (2+1 a 3+1)</option><option>2+1</option><option>3+1</option></select></label>
+      <label>Dispozice<select id="layout"><option value="">Všechny dispozice</option></select></label>
       <label>Min. cena (Kč)<input id="min-price" type="number" min="0" placeholder="bez limitu"></label>
       <label>Max. cena (Kč)<input id="max-price" type="number" min="0" placeholder="bez limitu"></label>
       <label><span>Stav</span><select id="status-filter"><option value="">Aktivní i neaktivní</option><option value="active">Aktivní</option><option value="inactive">Neaktivní</option></select></label>
@@ -73,6 +73,13 @@ PAGE = """<!doctype html>
       const response = await fetch("/api/listings", {cache: "no-store"});
       if (!response.ok) throw new Error("Server vrátil HTTP " + response.status);
       allListings = await response.json();
+      const layout = $("layout");
+      const selectedLayout = layout.value;
+      const dispositions = [...new Set(allListings.map(x => x.disposition).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "cs"));
+      layout.innerHTML = '<option value="">Všechny dispozice</option>' +
+        dispositions.map(value => `<option value="${esc(value)}">${esc(value)}</option>`).join("");
+      if (dispositions.includes(selectedLayout)) layout.value = selectedLayout;
       $("status").textContent = "Aktualizováno " + new Date().toLocaleTimeString("cs-CZ") + " · " + allListings.length + " záznamů";
       render();
     }

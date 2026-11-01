@@ -7,6 +7,18 @@ síti. Nepotřebuje žádné externí Python balíčky; stačí Python 3.10+.
 
 ## Spuštění
 
+Interaktivní nabídku všech skriptů spusťte:
+
+```sh
+python3 run.py
+```
+
+Menu umožní nastavit dostupné volby scraperu, webového serveru i pročištění
+databáze; nabízí také zobrazení nápovědy jednotlivých příkazů. U čištění se
+změny provedou pouze po výslovném potvrzení.
+
+Sběr lze spustit přímo bez menu:
+
 ```sh
 python3 scraper.py
 ```

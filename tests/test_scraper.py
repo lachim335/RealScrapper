@@ -21,9 +21,51 @@ from scraper import (
     normalized_listing,
     page_url,
 )
+from run import (
+    build_interactive_command,
+    cleanup_command,
+    scraper_command,
+    server_command,
+)
 
 
 class ScraperTests(unittest.TestCase):
+    def test_launcher_builds_commands_with_options(self):
+        self.assertEqual(
+            scraper_command("settings.json", "3600"),
+            [
+                sys.executable,
+                str(Path(__file__).parents[1] / "scraper.py"),
+                "--config",
+                "settings.json",
+                "--interval",
+                "3600",
+            ],
+        )
+        self.assertEqual(
+            server_command("127.0.0.1", "8080", "custom.sqlite3")[-6:],
+            ["--host", "127.0.0.1", "--port", "8080", "--db", "custom.sqlite3"],
+        )
+        self.assertNotIn("--apply", cleanup_command("db.sqlite3", False))
+        self.assertEqual(
+            cleanup_command("db.sqlite3", True)[-1],
+            "--apply",
+        )
+
+    def test_launcher_interactively_confirms_cleanup_mutations(self):
+        answers = iter(["db.sqlite3", "ano"])
+        command = build_interactive_command("3", lambda _: next(answers))
+        self.assertEqual(command[-2:], ["db.sqlite3", "--apply"])
+
+    def test_launcher_validates_interval_and_port(self):
+        scraper_answers = iter(["config.json", "30", "3600"])
+        scrape = build_interactive_command("1", lambda _: next(scraper_answers))
+        self.assertEqual(scrape[-2:], ["--interval", "3600"])
+
+        server_answers = iter(["127.0.0.1", "70000", "8000", ""])
+        server = build_interactive_command("2", lambda _: next(server_answers))
+        self.assertEqual(server[-4:], ["--host", "127.0.0.1", "--port", "8000"])
+
     def test_scraper_includes_requested_dispositions(self):
         self.assertTrue({"2+1", "3+1", "3+kk", "Atypický"} <= WANTED_DISPOSITIONS)
 

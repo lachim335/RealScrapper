@@ -58,6 +58,7 @@ PAGE = """<!doctype html>
       <label>Min. cena (Kč)<input id="min-price" type="number" min="0" placeholder="bez limitu"></label>
       <label>Max. cena (Kč)<input id="max-price" type="number" min="0" placeholder="bez limitu"></label>
       <label><span>Stav</span><select id="status-filter"><option value="">Aktivní i neaktivní</option><option value="active">Aktivní</option><option value="inactive">Neaktivní</option></select></label>
+      <label>Řazení<select id="sort-order"><option value="default">Výchozí</option><option value="price-asc">Cena: od nejnižší</option><option value="price-desc">Cena: od nejvyšší</option></select></label>
       <span id="status">Načítám…</span>
     </section>
     <section class="table-panel"><div class="table-wrap">
@@ -86,11 +87,21 @@ PAGE = """<!doctype html>
     function filtered() {
       const min = Number($("min-price").value) || 0;
       const max = Number($("max-price").value) || Infinity;
-      return allListings.filter(x =>
+      const rows = allListings.filter(x =>
         (!$("layout").value || x.disposition === $("layout").value) &&
         (!$("status-filter").value || x.status === $("status-filter").value) &&
         ((!min && max === Infinity) || (x.price_czk != null && x.price_czk >= min && x.price_czk <= max))
       );
+      const sortOrder = $("sort-order").value;
+      if (sortOrder === "price-asc" || sortOrder === "price-desc") {
+        const direction = sortOrder === "price-asc" ? 1 : -1;
+        rows.sort((a, b) => {
+          if (a.price_czk == null) return b.price_czk == null ? 0 : 1;
+          if (b.price_czk == null) return -1;
+          return direction * (a.price_czk - b.price_czk);
+        });
+      }
+      return rows;
     }
     function render() {
       const rows = filtered();
@@ -156,7 +167,7 @@ PAGE = """<!doctype html>
       const last = new Date(points[points.length - 1].observed_at).toLocaleDateString("cs-CZ");
       ctx.fillText(last, width - pad.right - ctx.measureText(last).width, height - 8);
     }
-    ["layout", "min-price", "max-price", "status-filter"].forEach(id => $(id).addEventListener("input", render));
+    ["layout", "min-price", "max-price", "status-filter", "sort-order"].forEach(id => $(id).addEventListener("input", render));
     $("listings").addEventListener("click", event => {
       const link = event.target.closest("a.history-link");
       if (!link) return;

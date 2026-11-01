@@ -1,0 +1,9 @@
+Vytvoř mi script který z portálu sreality.cz vytáhne inzeráty prodávaných bytů i s informacemi a uloží je ke mně na disk. 
+
+Script mám v úmyslu spoutět opakovaně. Chci, aby rozpoznal markery jednotlivých inzercí a při každé další iteraci případné změny ceny nemovitosti promítl k danému záznamu na disku. Graf by byl fajn, pokud možno.
+
+Je třeba mít na zřeteli, že některé inzerce mohou být smazány a publikovány znovu s jiným id inzerce. Je tedy dobré stanovit více markerů, podle kterých lze rozeznat jednotlivé inzeráty, pokud se tak stane, například z textu, obrázků.
+
+Součástí repozitáře by měl být i minimalistický webový server, který bude v reálném čase, později na raspberry pi3, tyto stránky publikovat. Zabezpečení není podstatně. Publikováno to bude pouze na LAN v domácnosti.
+
+Cena bytů by měla být volitelná. Byty by měli být dispozic pouze 2+1 a 3+1. Oblast Frýdek-Místek město a jeho okolí.

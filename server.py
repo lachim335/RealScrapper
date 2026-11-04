@@ -121,6 +121,8 @@ PAGE = """<!doctype html>
       if (sortOrder === "newest") {
         rows.sort((a, b) =>
           (Date.parse(b.last_seen || "") || 0) - (Date.parse(a.last_seen || "") || 0) ||
+          (Date.parse(b.price_history?.at(-1)?.observed_at || "") || 0) -
+            (Date.parse(a.price_history?.at(-1)?.observed_at || "") || 0) ||
           b.property_id - a.property_id
         );
       } else if (sortOrder === "price-asc" || sortOrder === "price-desc") {

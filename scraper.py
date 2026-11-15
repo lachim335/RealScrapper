@@ -358,6 +358,20 @@ def make_signature(listing: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def fill_signature(signature: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    """Fill empty signature fields (description, photos, area) from stored data."""
+    fallback = make_signature(data)
+    filled = dict(signature)
+    if not filled.get("description") and fallback["description"]:
+        filled["description"] = fallback["description"]
+        filled["text_hash"] = fallback["text_hash"]
+    if not filled.get("images") and fallback["images"]:
+        filled["images"] = fallback["images"]
+    if filled.get("area_m2") is None and fallback["area_m2"] is not None:
+        filled["area_m2"] = fallback["area_m2"]
+    return filled
+
+
 def identity_match(
     candidate: dict[str, Any], previous: dict[str, Any]
 ) -> bool:
@@ -438,6 +452,23 @@ class ListingStore:
                 ON price_history(property_id, observed_at);
             """
         )
+        self._repair_signatures()
+
+    def _repair_signatures(self) -> None:
+        """Fill signatures saved without description/photos from stored listing data."""
+        rows = self.db.execute(
+            """SELECT signatures.source_id, signatures.signature_json, properties.data_json
+               FROM signatures JOIN properties USING (property_id)"""
+        ).fetchall()
+        for row in rows:
+            signature = json.loads(row["signature_json"])
+            filled = fill_signature(signature, json.loads(row["data_json"]))
+            if filled != signature:
+                self.db.execute(
+                    "UPDATE signatures SET signature_json = ? WHERE source_id = ?",
+                    (json.dumps(filled, ensure_ascii=False), row["source_id"]),
+                )
+        self.db.commit()
 
     def existing_ids(self) -> set[str]:
         return {
@@ -542,6 +573,8 @@ class ListingStore:
                 ):
                     if previous.get(field):
                         merged[field] = previous[field]
+            listing["signature"] = fill_signature(listing["signature"], merged)
+            merged["signature"] = listing["signature"]
             merged["first_seen"] = previous.get("first_seen") or observed_at
             merged["last_seen"] = observed_at
             merged["status"] = "active"
@@ -557,8 +590,11 @@ class ListingStore:
             (source_id, property_id),
         )
         self.db.execute(
-            """INSERT OR IGNORE INTO signatures(source_id, property_id, signature_json)
-               VALUES (?, ?, ?)""",
+            """INSERT INTO signatures(source_id, property_id, signature_json)
+               VALUES (?, ?, ?)
+               ON CONFLICT(source_id) DO UPDATE SET
+                   property_id = excluded.property_id,
+                   signature_json = excluded.signature_json""",
             (
                 source_id,
                 property_id,

@@ -357,6 +357,48 @@ class ScraperTests(unittest.TestCase):
                 self.assertEqual([row[0] for row in history], [price])
             store.close()
 
+    def test_signature_is_completed_from_stored_details(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.sqlite3"
+            store = ListingStore(path)
+            description = "Prostorný byt po kompletní rekonstrukci se dvěma lodžiemi a garáží v domě. " * 2
+            detailed = {
+                "source_id": "flat",
+                "title": "Prodej bytu 3+1 98 m²",
+                "disposition": "3+1",
+                "location": "J. Opletala, Frýdek-Místek",
+                "area_m2": 98,
+                "price_czk": 4_450_000,
+                "description": description,
+                "details_loaded": True,
+                "image_urls": ["https://img.test/a.jpeg"],
+                "url": "https://example.test/flat",
+            }
+            detailed["signature"] = make_signature(detailed)
+            property_id = store.save(detailed, "2026-01-01T10:00:00+00:00")
+            # An older version stored a signature without the description.
+            empty = {**detailed["signature"], "description": "", "text_hash": ""}
+            store.db.execute(
+                "UPDATE signatures SET signature_json = ? WHERE source_id = 'flat'",
+                (json.dumps(empty),),
+            )
+            store.db.commit()
+            store.close()
+
+            store = ListingStore(path)
+            signature = lambda: json.loads(store.db.execute(
+                "SELECT signature_json FROM signatures WHERE source_id = 'flat'"
+            ).fetchone()[0])
+            self.assertEqual(signature()["description"], make_signature(detailed)["description"])
+
+            # A later run without details must not erase the description again.
+            summary_only = {**detailed, "description": "", "details_loaded": False, "image_urls": []}
+            summary_only["signature"] = make_signature(summary_only)
+            self.assertEqual(store.save(summary_only, "2026-01-02T10:00:00+00:00"), property_id)
+            self.assertEqual(signature()["description"], make_signature(detailed)["description"])
+            self.assertEqual(signature()["images"], ["/a.jpeg"])
+            store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

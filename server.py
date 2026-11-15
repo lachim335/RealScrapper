@@ -76,6 +76,7 @@ PAGE = """<!doctype html>
   </main>
   <script>
     const money = n => n == null ? "Cena neuvedena" : new Intl.NumberFormat("cs-CZ").format(n) + " Kč";
+    const LISTINGS_URL = "/api/listings";
     const FAVORITES_KEY = "realscrapper-favorites-v1";
     let allListings = [];
     const openHistories = new Set();
@@ -95,7 +96,7 @@ PAGE = """<!doctype html>
       }
     }
     async function refresh() {
-      const response = await fetch("/api/listings", {cache: "no-store"});
+      const response = await fetch(LISTINGS_URL, {cache: "no-store"});
       if (!response.ok) throw new Error("Server vrátil HTTP " + response.status);
       allListings = await response.json();
       const layout = $("layout");
@@ -236,6 +237,55 @@ PAGE = """<!doctype html>
 """
 
 
+def load_listings(database: Path) -> list[dict]:
+    """Return all listings with their price history from the SQLite database."""
+    with closing(sqlite3.connect(database)) as db:
+        db.row_factory = sqlite3.Row
+        properties = db.execute(
+            "SELECT property_id, status, data_json FROM properties ORDER BY last_seen DESC"
+        ).fetchall()
+        response = []
+        for row in properties:
+            listing = json.loads(row["data_json"])
+            listing["property_id"] = row["property_id"]
+            listing["status"] = row["status"]
+            listing["price_history"] = [
+                dict(item)
+                for item in db.execute(
+                    """SELECT observed_at, price_czk FROM price_history
+                       WHERE property_id = ? ORDER BY observed_at, history_id""",
+                    (row["property_id"],),
+                )
+            ]
+            response.append(listing)
+    return response
+
+
+def export_static(database: Path, output: Path) -> int:
+    """Write a static copy of the web overview (e.g. for GitHub Pages)."""
+    listings = load_listings(database)
+    for listing in listings:
+        for key in ("display_image_urls", "image_urls"):
+            if isinstance(listing.get(key), list):
+                listing[key] = [
+                    url.removeprefix("/") if isinstance(url, str) and url.startswith("/images/") else url
+                    for url in listing[key]
+                ]
+    output.mkdir(parents=True, exist_ok=True)
+    page = PAGE.replace('const LISTINGS_URL = "/api/listings";', 'const LISTINGS_URL = "listings.json";')
+    (output / "index.html").write_text(page, encoding="utf-8")
+    (output / "listings.json").write_text(json.dumps(listings, ensure_ascii=False), encoding="utf-8")
+    (output / ".nojekyll").write_text("", encoding="utf-8")
+    source_images = database.parent / "images"
+    target_images = output / "images"
+    target_images.mkdir(exist_ok=True)
+    if source_images.is_dir():
+        for image in source_images.iterdir():
+            if image.is_file() and re.fullmatch(r"[a-f0-9]{64}\.(?:webp|jpe?g|png|gif)", image.name):
+                (target_images / image.name).write_bytes(image.read_bytes())
+    return len(listings)
+
+
 class Handler(BaseHTTPRequestHandler):
     database = DEFAULT_DB
 
@@ -281,25 +331,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         try:
-            with closing(sqlite3.connect(self.database)) as db:
-                db.row_factory = sqlite3.Row
-                properties = db.execute(
-                    "SELECT property_id, status, data_json FROM properties ORDER BY last_seen DESC"
-                ).fetchall()
-                response = []
-                for row in properties:
-                    listing = json.loads(row["data_json"])
-                    listing["property_id"] = row["property_id"]
-                    listing["status"] = row["status"]
-                    listing["price_history"] = [
-                        dict(item)
-                        for item in db.execute(
-                            """SELECT observed_at, price_czk FROM price_history
-                               WHERE property_id = ? ORDER BY observed_at, history_id""",
-                            (row["property_id"],),
-                        )
-                    ]
-                    response.append(listing)
+            response = load_listings(self.database)
         except (sqlite3.Error, json.JSONDecodeError) as exc:
             self.send_body(
                 json.dumps({"error": f"Chyba při čtení databáze: {exc}"}).encode(),
@@ -329,6 +361,12 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0", help="rozhraní (výchozí: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--db", type=Path, help="SQLite databáze (přepíše config.json)")
+    parser.add_argument(
+        "--export",
+        type=Path,
+        metavar="SLOŽKA",
+        help="místo spuštění serveru vytvořit statický web (např. pro GitHub Pages)",
+    )
     args = parser.parse_args()
     database = args.db
     if database is None:
@@ -349,6 +387,12 @@ def main() -> None:
             )
         else:
             database = DEFAULT_DB
+    if args.export is not None:
+        if not database.exists():
+            parser.error(f"Databáze {database} neexistuje; nejdřív spusťte scraper.")
+        count = export_static(database, args.export)
+        print(f"Statický web s {count} inzeráty uložen do {args.export}")
+        return
     Handler.database = database
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Web server běží na http://{args.host}:{args.port}/ (Ctrl+C ukončí)")

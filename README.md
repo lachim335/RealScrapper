@@ -55,6 +55,19 @@ Pro Raspberry Pi 3 je vhodný Raspberry Pi OS s Pythonem 3.10 nebo novějším.
 Server je záměrně dostupný na všech síťových rozhraních; nevystavujte jej do
 veřejného internetu.
 
+## Automatický běh na GitHubu
+
+Workflow [.github/workflows/scrape.yml](./.github/workflows/scrape.yml) spouští
+sběr každé pondělí a pátek ve 13:00 pražského času (letní i zimní čas) a
+výsledek publikuje jako statický web na GitHub Pages. Databáze a obrázky se
+uchovávají ve větvi `data`, takže historie cen mezi běhy zůstává. Sběr lze
+spustit i ručně v záložce Actions („Run workflow“); po pushi do `main` se web
+jen znovu nasadí bez sběru.
+
+Statický web lze vytvořit i lokálně: `python3 server.py --export _site`.
+Oblíbené inzeráty se ukládají v prohlížeči, tedy zvlášť pro lokální server a
+pro GitHub Pages.
+
 ## Cena a ukládané údaje
 
 V tabulce lze volit dispozici a volitelně filtrovat minimální a maximální cenu.

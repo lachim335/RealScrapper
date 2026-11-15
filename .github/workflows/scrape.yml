@@ -1,0 +1,105 @@
+name: Sběr a nasazení webu
+
+on:
+  schedule:
+    # GitHub plánuje v UTC. Obě časy pokrývají 13:00 v Praze; job "gate"
+    # nechá projít jen ten, který odpovídá aktuálnímu letnímu/zimnímu času.
+    - cron: "0 11 * * 1,5" # 13:00 SELČ (letní čas)
+    - cron: "0 12 * * 1,5" # 13:00 SEČ (zimní čas)
+  workflow_dispatch:
+    inputs:
+      scrape:
+        description: "Spustit sběr (jinak jen znovu nasadit web)"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: scrape-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      scrape: ${{ steps.decide.outputs.scrape }}
+    steps:
+      - id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          SCRAPE_INPUT: ${{ inputs.scrape }}
+        run: |
+          case "$EVENT" in
+            schedule)
+              offset=$(TZ=Europe/Prague date +%z)
+              if [ "$SCHEDULE" = "0 11 * * 1,5" ]; then want=+0200; else want=+0100; fi
+              if [ "$offset" = "$want" ]; then run=true; else run=false; fi
+              scrape=$run ;;
+            workflow_dispatch) run=true; scrape=$SCRAPE_INPUT ;;
+            *) run=true; scrape=false ;;
+          esac
+          echo "Pražský offset: $(TZ=Europe/Prague date +%z), run=$run, scrape=$scrape"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "scrape=$scrape" >> "$GITHUB_OUTPUT"
+
+  scrape:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      # Databáze a obrázky se uchovávají ve větvi "data" (mimo historii kódu).
+      - uses: actions/checkout@v5
+        with:
+          ref: data
+          path: data
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Sběr inzerátů
+        if: needs.gate.outputs.scrape == 'true'
+        run: python3 scraper.py
+
+      - name: Uložení dat do větve data
+        if: needs.gate.outputs.scrape == 'true'
+        working-directory: data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Žádné změny dat."
+          else
+            git commit -m "Sběr $(TZ=Europe/Prague date '+%Y-%m-%d %H:%M')"
+            git push origin HEAD:data
+          fi
+
+      - name: Export statického webu
+        run: python3 server.py --export _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: scrape
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

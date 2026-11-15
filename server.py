@@ -52,10 +52,14 @@ PAGE = """<!doctype html>
     .favorite-toggle { display: inline-grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 1px solid #435260; border-radius: .4rem; color: #9aa8b5; background: #111a23; cursor: pointer; font-size: 1.25rem; line-height: 1; }
     .favorite-toggle[aria-pressed="true"] { color: #f2cc60; border-color: #806b2f; }
     .favorite-toggle:hover { background: #263441; }
-    .photos { display: flex; gap: .25rem; }
-    .photos img { width: 62px; height: 48px; object-fit: cover; border-radius: .25rem; }
+    .photos { display: flex; gap: .35rem; }
+    .photos img { width: 150px; height: 112px; object-fit: cover; border-radius: .35rem; }
+    .price-history { list-style: none; margin: 0; padding: 0; }
+    .price-history li { white-space: nowrap; }
+    .price-history li + li { margin-top: .45rem; padding-top: .45rem; border-top: 1px solid #2b3946; }
+    .price-history small { display: block; color: #a6b3bf; }
     .desc { max-width: 25rem; white-space: pre-line; }
-    @media (max-width: 640px) { .desc { max-width: 14rem; } #status { margin-left: 0; } }
+    @media (max-width: 640px) { .desc { max-width: 14rem; } #status { margin-left: 0; } .photos img { width: 96px; height: 72px; } }
   </style>
 </head>
 <body>
@@ -150,7 +154,7 @@ PAGE = """<!doctype html>
           <td><div class="photos">${images.slice(0, 2).map(src => `<img loading="lazy" src="${esc(src)}" alt="">`).join("")}</div></td>
           <td><div class="listing-links"><button class="favorite-toggle" type="button" data-id="${id}" aria-label="${isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených"}">${isFavorite ? "★" : "☆"}</button><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.disposition)}</a><a class="history-link" href="#${historyId}" data-id="${id}" aria-expanded="${expanded}">${expanded ? "Skrýt historii" : "Historie cen"}</a></div><div>${esc(x.disposition)} · ${x.area_m2 == null ? "plocha neuvedena" : x.area_m2 + " m²"}</div><div>${(x.attributes || []).slice(0, 5).map(a => `${esc(a.name)}: ${esc(a.value)}`).join(" · ")}</div><div class="desc">${esc((x.description || "").slice(0, 280))}</div></td>
           <td>${esc(x.location)}</td><td>${money(x.price_czk)}</td>
-          <td>${x.price_history.map((p, i) => `${i ? "<br>" : ""}${money(p.price_czk)}<br><small>${new Date(p.observed_at).toLocaleDateString("cs-CZ")}</small>`).join("")}</td>
+          <td><ul class="price-history">${x.price_history.map(p => `<li>${money(p.price_czk)}<small>${new Date(p.observed_at).toLocaleDateString("cs-CZ")}</small></li>`).join("")}</ul></td>
           <td>${x.status === "active" ? "Aktivní" : "Neaktivní"}</td></tr>
           <tr id="${historyId}" class="history-row" ${expanded ? "" : "hidden"}><td colspan="6"><div class="history-chart"><strong>Vývoj ceny: ${esc(x.title || x.disposition)}</strong><canvas id="chart-${id}" aria-label="Graf historie ceny" role="img"></canvas></div></td></tr>`;
       }).join("");

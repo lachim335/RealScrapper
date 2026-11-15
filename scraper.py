@@ -403,6 +403,10 @@ class ListingStore:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.image_directory = path.parent / "images"
+        # Source IDs present in the current search results. Two listings that
+        # are online at the same time are separate offers (e.g. a flat with and
+        # without a garage), so they must never share one price history.
+        self.current_ids: set[str] = set()
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA foreign_keys = ON")
@@ -449,12 +453,23 @@ class ListingStore:
         ).fetchone()
         return row is None or not json.loads(row["data_json"]).get("details_loaded")
 
+    def _has_other_current_id(self, property_id: int, source_id: str) -> bool:
+        return any(
+            row["source_id"] in self.current_ids
+            for row in self.db.execute(
+                "SELECT source_id FROM source_ids WHERE property_id = ? AND source_id != ?",
+                (property_id, source_id),
+            )
+        )
+
     def _find_property(self, listing: dict[str, Any]) -> int | None:
         matches: list[tuple[int, str]] = []
         rows = self.db.execute(
             "SELECT property_id, signature_json FROM signatures"
         ).fetchall()
         for row in rows:
+            if self._has_other_current_id(row["property_id"], listing["source_id"]):
+                continue
             previous = json.loads(row["signature_json"])
             if identity_match(listing, {"signature": previous}):
                 matches.append((row["property_id"], row["signature_json"]))
@@ -475,6 +490,7 @@ class ListingStore:
             row["source_id"]
             for row in rows
             if not row["signature_json"]
+            or row["source_id"] in self.current_ids
             or not identity_match(
                 listing, {"signature": json.loads(row["signature_json"])}
             )
@@ -601,6 +617,13 @@ def collect(search_url: str, store: ListingStore) -> tuple[int, int]:
         pages.append(fetch_html(url))
 
     observed_at = now_utc()
+    store.current_ids = {
+        str(summary.get("id"))
+        for page_number, page_html in enumerate(pages, start=1)
+        for summary in estate_search_data(page_html, page_url(search_url, page_number))[0]["results"]
+        if summary.get("id")
+        and _field_value(summary.get("categorySubCb")) in WANTED_DISPOSITIONS
+    }
     seen_ids: set[str] = set()
     saved = 0
     known_ids = store.existing_ids()

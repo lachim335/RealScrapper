@@ -308,6 +308,55 @@ class ScraperTests(unittest.TestCase):
             self.assertEqual(len(store.existing_ids()), 2)
             store.close()
 
+    def test_simultaneous_listings_of_same_flat_are_kept_apart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ListingStore(Path(directory) / "test.sqlite3")
+            description = "Prodej bytu 3+1 Bavlnářská, slunný byt po rekonstrukci se sklepem a lodžií. " * 3
+            flat = {
+                "source_id": "flat-only",
+                "title": "Prodej bytu 3+1 65 m²",
+                "disposition": "3+1",
+                "location": "Bavlnářská, Frýdek-Místek",
+                "area_m2": 65,
+                "price_czk": 3_990_000,
+                "description": description,
+                "image_urls": [],
+                "url": "https://example.test/flat-only",
+            }
+            flat["signature"] = make_signature(flat)
+            with_garage = {**flat, "source_id": "with-garage", "price_czk": 4_750_000,
+                           "description": "Garáž. " + description}
+            with_garage["signature"] = make_signature(with_garage)
+
+            # A buggy earlier run merged both offers into one property.
+            property_id = store.save(flat, "2026-01-01T10:00:00+00:00")
+            store.db.execute(
+                "INSERT INTO source_ids(source_id, property_id) VALUES (?, ?)",
+                ("with-garage", property_id),
+            )
+            store.db.execute(
+                """INSERT INTO signatures(source_id, property_id, signature_json)
+                   VALUES (?, ?, ?)""",
+                ("with-garage", property_id, json.dumps(with_garage["signature"])),
+            )
+            store.db.execute(
+                """INSERT INTO price_history(property_id, observed_at, price_czk)
+                   VALUES (?, ?, ?)""",
+                (property_id, "2026-01-01T10:00:00+00:00", 4_750_000),
+            )
+
+            store.current_ids = {"flat-only", "with-garage"}
+            for day in ("2026-01-02", "2026-01-03"):
+                first = store.save(flat, f"{day}T10:00:00+00:00")
+                second = store.save(with_garage, f"{day}T10:00:00+00:00")
+                self.assertNotEqual(first, second)
+            for pid, price in ((first, 3_990_000), (second, 4_750_000)):
+                history = store.db.execute(
+                    "SELECT price_czk FROM price_history WHERE property_id = ?", (pid,)
+                ).fetchall()
+                self.assertEqual([row[0] for row in history], [price])
+            store.close()
+
 
 if __name__ == "__main__":
     unittest.main()

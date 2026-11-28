@@ -33,6 +33,8 @@ DEFAULT_SEARCH_URL = (
 WANTED_DISPOSITIONS = {"2+1", "3+1", "3+kk", "Atypický"}
 USER_AGENT = "RealScrapper/1.0 (personal home-LAN listing tracker)"
 DETAIL_DELAY_SECONDS = 0.4
+LOCALE_RETRIES = 3
+LOCALE_RETRY_DELAY_SECONDS = 5
 IMAGE_LIMIT_PER_LISTING = 2
 MAX_IMAGE_BYTES = 12 * 1024 * 1024
 logger = logging.getLogger("sreality")
@@ -54,6 +56,8 @@ def fetch_html(url: str) -> str:
         headers={
             "User-Agent": USER_AGENT,
             "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.5",
+            # Sreality (Next.js) also has en/ru versions; ask for Czech explicitly.
+            "Cookie": "NEXT_LOCALE=cs",
         },
     )
     try:
@@ -62,6 +66,25 @@ def fetch_html(url: str) -> str:
             return response.read().decode(charset, errors="replace")
     except (HTTPError, URLError, TimeoutError) as exc:
         raise RuntimeError(f"Nepodařilo se stáhnout {url}: {exc}") from exc
+
+
+def fetch_czech_page(url: str) -> str:
+    """Download a Sreality page and make sure it is the Czech version.
+
+    Sreality occasionally serves its Russian or English version, whose texts
+    and detail links differ; such a page must never be stored.
+    """
+    for attempt in range(1, LOCALE_RETRIES + 1):
+        page_html = fetch_html(url)
+        locale = next_data(page_html, url).get("locale")
+        if locale in (None, "cs"):
+            return page_html
+        logger.warning(
+            "Stránka %s přišla v jazyce %r (pokus %s/%s).", url, locale, attempt, LOCALE_RETRIES
+        )
+        if attempt < LOCALE_RETRIES:
+            time.sleep(LOCALE_RETRY_DELAY_SECONDS)
+    raise RuntimeError(f"Sreality opakovaně nevrátila českou verzi stránky {url}.")
 
 
 def next_data(page_html: str, url: str) -> dict[str, Any]:
@@ -110,6 +133,40 @@ def listing_links(page_html: str) -> dict[str, str]:
         if identifier:
             links[identifier.group(1)] = urljoin("https://www.sreality.cz", href)
     return links
+
+
+# Sreality codebook values (language independent) -> URL slugs.
+DETAIL_TYPE_SLUGS = {1: "prodej", 2: "pronajem", 3: "drazby"}
+DETAIL_MAIN_SLUGS = {1: "byt", 2: "dum", 3: "pozemek", 4: "komercni", 5: "ostatni"}
+
+
+def _codebook_value(value: Any) -> int | None:
+    return value.get("value") if isinstance(value, dict) else None
+
+
+def _slug(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value.lower())
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9+]+", "-", value).strip("-")
+
+
+def fallback_detail_url(summary: dict[str, Any]) -> str:
+    """Build a detail URL from the listing data when the page has no link.
+
+    Sreality redirects /detail/<type>/<kind>/<disposition>/<anything>/<id>
+    to the canonical address, so the locality part can be a placeholder.
+    """
+    source_id = str(summary.get("id") or "")
+    type_slug = DETAIL_TYPE_SLUGS.get(_codebook_value(summary.get("categoryTypeCb")))
+    main_slug = DETAIL_MAIN_SLUGS.get(_codebook_value(summary.get("categoryMainCb")))
+    sub_slug = _slug(_field_value(summary.get("categorySubCb")))
+    if not (source_id.isdigit() and type_slug and main_slug and sub_slug):
+        return ""
+    locality = summary.get("locality") if isinstance(summary.get("locality"), dict) else {}
+    place = "-".join(
+        filter(None, (locality.get("citySeoName"), locality.get("cityPartSeoName")))
+    ) or "detail"
+    return f"https://www.sreality.cz/detail/{type_slug}/{main_slug}/{sub_slug}/{place}/{source_id}"
 
 
 def detail_data(page_html: str, url: str) -> dict[str, Any]:
@@ -563,6 +620,8 @@ class ListingStore:
             ).fetchone()
             previous = json.loads(previous_row["data_json"])
             merged = {**previous, **listing}
+            if not listing.get("url") and previous.get("url"):
+                merged["url"] = previous["url"]
             if not listing.get("details_loaded"):
                 for field in (
                     "description",
@@ -643,14 +702,14 @@ class ListingStore:
 
 
 def collect(search_url: str, store: ListingStore) -> tuple[int, int]:
-    first_page = fetch_html(page_url(search_url, 1))
+    first_page = fetch_czech_page(page_url(search_url, 1))
     _, total, page_size = estate_search_data(first_page, page_url(search_url, 1))
     page_count = max(1, math.ceil(total / max(1, page_size)))
     logger.info("Sreality hlásí %s výsledků na %s stránkách.", total, page_count)
     pages = [first_page]
     for number in range(2, page_count + 1):
         url = page_url(search_url, number)
-        pages.append(fetch_html(url))
+        pages.append(fetch_czech_page(url))
 
     observed_at = now_utc()
     store.current_ids = {
@@ -675,11 +734,11 @@ def collect(search_url: str, store: ListingStore) -> tuple[int, int]:
                 logger.warning("Přeskakuji inzerát bez ID na stránce %s.", page_number)
                 continue
             seen_ids.add(source_id)
-            url = links.get(source_id)
+            url = links.get(source_id) or fallback_detail_url(summary)
             detail = None
             if url and (source_id not in known_ids or store.needs_detail(source_id)):
                 try:
-                    detail = detail_data(fetch_html(url), url)
+                    detail = detail_data(fetch_czech_page(url), url)
                 except RuntimeError as exc:
                     logger.warning("Detail inzerátu %s: %s", source_id, exc)
                 time.sleep(DETAIL_DELAY_SECONDS)

@@ -16,6 +16,8 @@ from scraper import (
     _image_url,
     download_listing_images,
     estate_search_data,
+    fallback_detail_url,
+    fetch_czech_page,
     identity_match,
     make_signature,
     normalized_listing,
@@ -397,6 +399,60 @@ class ScraperTests(unittest.TestCase):
             self.assertEqual(store.save(summary_only, "2026-01-02T10:00:00+00:00"), property_id)
             self.assertEqual(signature()["description"], make_signature(detailed)["description"])
             self.assertEqual(signature()["images"], ["/a.jpeg"])
+            store.close()
+
+    @staticmethod
+    def _page(locale):
+        data = {"locale": locale, "props": {}}
+        return f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(data)}</script>'
+
+    def test_non_czech_page_is_retried_and_then_rejected(self):
+        with patch("scraper.time.sleep"), patch(
+            "scraper.fetch_html", side_effect=[self._page("ru"), self._page("cs")]
+        ) as fetch:
+            self.assertIn('"cs"', fetch_czech_page("https://www.sreality.cz/x"))
+            self.assertEqual(fetch.call_count, 2)
+        with patch("scraper.time.sleep"), patch(
+            "scraper.fetch_html", return_value=self._page("ru")
+        ):
+            with self.assertRaises(RuntimeError):
+                fetch_czech_page("https://www.sreality.cz/x")
+
+    def test_detail_url_is_built_when_page_has_no_link(self):
+        summary = {
+            "id": 2347552844,
+            "categoryTypeCb": {"name": "Продажа", "value": 1},
+            "categoryMainCb": {"name": "Квартиры", "value": 1},
+            "categorySubCb": {"name": "3+kk", "value": 6},
+            "locality": {"citySeoName": "frydek-mistek", "cityPartSeoName": "frydek"},
+        }
+        self.assertEqual(
+            fallback_detail_url(summary),
+            "https://www.sreality.cz/detail/prodej/byt/3+kk/frydek-mistek-frydek/2347552844",
+        )
+        self.assertEqual(fallback_detail_url({"id": 1}), "")
+
+    def test_missing_url_does_not_overwrite_stored_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ListingStore(Path(directory) / "test.sqlite3")
+            listing = {
+                "source_id": "1",
+                "title": "Prodej bytu 2+1 55 m²",
+                "disposition": "2+1",
+                "location": "Ostravská, Frýdek-Místek",
+                "area_m2": 55,
+                "price_czk": 3_000_000,
+                "description": "",
+                "image_urls": [],
+                "url": "https://www.sreality.cz/detail/prodej/byt/2+1/x/1",
+            }
+            listing["signature"] = make_signature(listing)
+            property_id = store.save(listing, "2026-01-01T10:00:00+00:00")
+            store.save({**listing, "url": ""}, "2026-01-02T10:00:00+00:00")
+            data = json.loads(store.db.execute(
+                "SELECT data_json FROM properties WHERE property_id = ?", (property_id,)
+            ).fetchone()[0])
+            self.assertEqual(data["url"], listing["url"])
             store.close()
 
 

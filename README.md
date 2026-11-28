@@ -58,7 +58,8 @@ veřejného internetu.
 ## Automatický běh na GitHubu
 
 Workflow [.github/workflows/scrape.yml](./.github/workflows/scrape.yml) spouští
-sběr každé pondělí a pátek ve 13:00 pražského času (letní i zimní čas) a
+sběr každé pondělí a pátek ve 12:47 pražského času (letní i zimní čas;
+GitHub plánované běhy často spouští se zpožděním) a
 výsledek publikuje jako statický web na GitHub Pages. Databáze a obrázky se
 uchovávají ve větvi `data`, takže historie cen mezi běhy zůstává. Sběr lze
 spustit i ručně v záložce Actions („Run workflow“); po pushi do `main` se web

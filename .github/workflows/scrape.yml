@@ -2,10 +2,11 @@ name: Sběr a nasazení webu
 
 on:
   schedule:
-    # GitHub plánuje v UTC. Obě časy pokrývají 13:00 v Praze; job "gate"
+    # GitHub plánuje v UTC. Obě časy pokrývají 12:47 v Praze; job "gate"
     # nechá projít jen ten, který odpovídá aktuálnímu letnímu/zimnímu času.
-    - cron: "0 11 * * 1,5" # 13:00 SELČ (letní čas)
-    - cron: "0 12 * * 1,5" # 13:00 SEČ (zimní čas)
+    # Minuta mimo celou hodinu snižuje zpoždění plánovače GitHubu.
+    - cron: "47 10 * * 1,5" # 12:47 SELČ (letní čas)
+    - cron: "47 11 * * 1,5" # 12:47 SEČ (zimní čas)
   workflow_dispatch:
     inputs:
       scrape:
@@ -40,7 +41,7 @@ jobs:
           case "$EVENT" in
             schedule)
               offset=$(TZ=Europe/Prague date +%z)
-              if [ "$SCHEDULE" = "0 11 * * 1,5" ]; then want=+0200; else want=+0100; fi
+              if [ "$SCHEDULE" = "47 10 * * 1,5" ]; then want=+0200; else want=+0100; fi
               if [ "$offset" = "$want" ]; then run=true; else run=false; fi
               scrape=$run ;;
             workflow_dispatch) run=true; scrape=$SCRAPE_INPUT ;;
